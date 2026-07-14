@@ -23,22 +23,41 @@
   <section class="view" id="view-train">
     <!-- 未開始訓練 -->
     <div id="trainIdle">
-      <div class="card">
-        <div class="card-title">開始今天的訓練</div>
-        <div class="course-btns">
-          <button class="btn btn-primary btn-big" data-start="A">A 課<span class="btn-sub">腿推・胸推・滑輪下拉</span></button>
-          <button class="btn btn-primary btn-big" data-start="B">B 課<span class="btn-sub">腿推・坐姿划船・肩推</span></button>
-          <button class="btn btn-primary btn-big" data-start="C">C 課（居家保底）<span class="btn-sub">深蹲・伏地挺身・臀橋・棒式</span></button>
-          <button class="btn btn-ghost btn-big" data-start="FREE">自由訓練<span class="btn-sub">自己挑動作</span></button>
-        </div>
+      <div class="section-label">開始今天的訓練</div>
+      <div class="course-btns">
+        <button class="course-card cc-a" data-start="A">
+          <span class="cc-icon">🔥</span>
+          <span class="cc-body"><b>A 課・推力日</b><span>胸推・肩推・夾胸・三頭・腿推・核心</span></span>
+          <span class="cc-arrow">›</span>
+        </button>
+        <button class="course-card cc-b" data-start="B">
+          <span class="cc-icon">🎯</span>
+          <span class="cc-body"><b>B 課・拉力日</b><span>下拉・划船・反飛鳥・二頭・腿彎舉・核心</span></span>
+          <span class="cc-arrow">›</span>
+        </button>
+        <button class="course-card cc-c" data-start="C">
+          <span class="cc-icon">🦵</span>
+          <span class="cc-body"><b>C 課・下肢日</b><span>腿推・腿伸展・腿彎舉・髖外展・提踵</span></span>
+          <span class="cc-arrow">›</span>
+        </button>
+        <button class="course-card cc-d" data-start="D">
+          <span class="cc-icon">🏠</span>
+          <span class="cc-body"><b>D 課・居家保底</b><span>深蹲・伏地挺身・臀橋・棒式</span></span>
+          <span class="cc-arrow">›</span>
+        </button>
+        <button class="course-card cc-free" data-start="FREE">
+          <span class="cc-icon">✨</span>
+          <span class="cc-body"><b>自由訓練</b><span>自己挑動作</span></span>
+          <span class="cc-arrow">›</span>
+        </button>
       </div>
       <div class="card" id="lastWorkoutCard" hidden>
         <div class="card-title">上次訓練</div>
         <div id="lastWorkoutSummary" class="muted"></div>
       </div>
       <div class="card">
-        <div class="card-title">訓練規則</div>
-        <div class="muted">暖身：跑步機快走 5 分鐘。必做動作 3 組 × 12~15 下，最後 2 下吃力但不變形。<b>3 組都能做滿 15 下 → 下次加重</b>（腿推 +5kg、其他 +2.5~5kg）。加碼動作有時間才做，每個 2 組。去不了健身房就做 C 課，不斷鏈最重要。</div>
+        <div class="card-title">訓練規則（90 分鐘）</div>
+        <div class="muted">暖身快走 5 分 → 器材 6 動作 × 3 組 × 12~15 下（組間 90 秒）→ 有氧收尾 30 分（坡度快走，能講話但微喘）。<b>3 組都做滿 15 下 → 下次加重</b>（腿推 +5~10kg、其他 +2.5~5kg）。前兩週只做每課前 4 個動作＋有氧 20 分。一週 2 次照 A→B→C 順序輪，3 次剛好一輪。</div>
       </div>
     </div>
 
@@ -142,7 +161,7 @@
     <div class="card">
       <button class="btn btn-danger btn-block" id="btnWipe">清除全部資料</button>
     </div>
-    <div class="muted center" id="versionLine">健身紀錄 v0.2.0 (課表 v2)</div>
+    <div class="muted center" id="versionLine">健身紀錄 v0.3.0 (課表 v3)</div>
   </section>
 
 </main>
@@ -161,6 +180,12 @@
   <div class="rest-box">
     <div class="rest-label">組間休息</div>
     <svg class="rest-ring" viewBox="0 0 200 200">
+      <defs>
+        <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#5b8cff"/>
+          <stop offset="100%" stop-color="#a78bfa"/>
+        </linearGradient>
+      </defs>
       <circle class="ring-bg" cx="100" cy="100" r="88"/>
       <circle class="ring-fg" id="ringFg" cx="100" cy="100" r="88"/>
     </svg>

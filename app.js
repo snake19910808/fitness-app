@@ -5,31 +5,58 @@
 const STORE_KEY = "fitapp.v1";
 
 const COURSES = {
-  A: { name: "A 課", exercises: ["腿推機", "胸推機", "滑輪下拉"], extras: ["二頭彎舉", "捲腹"] },
-  B: { name: "B 課", exercises: ["腿推機", "坐姿划船", "肩推機"], extras: ["三頭下壓", "棒式(秒)"] },
-  C: { name: "C 課（居家）", exercises: ["深蹲", "伏地挺身", "臀橋", "棒式(秒)"], extras: ["原地登階(分)", "超人式"] },
-  FREE: { name: "自由訓練", exercises: [], extras: [] },
+  A: {
+    name: "A 課・推力日",
+    exercises: ["腿推機", "胸推機", "肩推機", "蝴蝶機夾胸", "三頭下壓", "捲腹"],
+    extras: ["跑步機坡度快走(分)", "滑步機(分)"],
+    extrasTitle: "有氧收尾（目標 30 分鐘，數字填分鐘）",
+  },
+  B: {
+    name: "B 課・拉力日",
+    exercises: ["腿彎舉機", "滑輪下拉", "坐姿划船", "反向飛鳥", "二頭彎舉", "棒式(秒)"],
+    extras: ["跑步機坡度快走(分)", "滑步機(分)"],
+    extrasTitle: "有氧收尾（目標 30 分鐘，數字填分鐘）",
+  },
+  C: {
+    name: "C 課・下肢日",
+    exercises: ["腿推機", "腿伸展機", "腿彎舉機", "髖外展機", "站姿提踵", "捲腹"],
+    extras: ["跑步機坡度快走(分)", "滑步機(分)"],
+    extrasTitle: "有氧收尾（目標 30 分鐘，數字填分鐘）",
+  },
+  D: {
+    name: "D 課・居家保底",
+    exercises: ["深蹲", "伏地挺身", "臀橋", "棒式(秒)"],
+    extras: ["原地登階(分)", "超人式"],
+    extrasTitle: "加碼動作（有餘力再做）",
+  },
+  FREE: { name: "自由訓練", exercises: [], extras: [], extrasTitle: "" },
 };
 
 const LIBRARY = [
   { name: "腿推機", group: "腿" },
+  { name: "腿伸展機", group: "腿前側" },
+  { name: "腿彎舉機", group: "腿後側" },
+  { name: "髖外展機", group: "臀" },
+  { name: "站姿提踵", group: "小腿" },
   { name: "胸推機", group: "胸" },
+  { name: "蝴蝶機夾胸", group: "胸" },
   { name: "滑輪下拉", group: "背" },
   { name: "坐姿划船", group: "背" },
   { name: "肩推機", group: "肩" },
-  { name: "深蹲", group: "腿" },
-  { name: "羅馬尼亞硬舉", group: "腿後・下背" },
-  { name: "啞鈴臥推", group: "胸" },
-  { name: "啞鈴肩推", group: "肩" },
+  { name: "反向飛鳥", group: "後肩・上背" },
   { name: "二頭彎舉", group: "手臂" },
   { name: "三頭下壓", group: "手臂" },
   { name: "捲腹", group: "核心" },
   { name: "棒式(秒)", group: "核心" },
+  { name: "深蹲", group: "腿・居家" },
+  { name: "羅馬尼亞硬舉", group: "腿後・下背" },
+  { name: "啞鈴臥推", group: "胸" },
+  { name: "啞鈴肩推", group: "肩" },
   { name: "伏地挺身", group: "胸・居家" },
   { name: "臀橋", group: "臀腿・居家" },
   { name: "超人式", group: "下背・居家" },
   { name: "原地登階(分)", group: "有氧・居家" },
-  { name: "跑步機快走(分)", group: "有氧" },
+  { name: "跑步機坡度快走(分)", group: "有氧" },
   { name: "滑步機(分)", group: "有氧" },
 ];
 
@@ -278,13 +305,14 @@ function renderExercises() {
 function renderExtras() {
   const old = $("extrasRow");
   if (old) old.remove();
-  const extras = (COURSES[state.active?.course]?.extras || [])
+  const course = COURSES[state.active?.course];
+  const extras = (course?.extras || [])
     .filter((n) => !state.active.entries.some((e) => e.name === n));
   if (!extras.length) return;
   const row = document.createElement("div");
   row.id = "extrasRow";
   row.className = "card";
-  row.innerHTML = `<div class="card-title">加碼動作（有時間再做，每個 2 組）</div>
+  row.innerHTML = `<div class="card-title">${esc(course.extrasTitle || "加碼動作")}</div>
     <div class="set-chips">${extras.map((n) => `<button class="set-chip extra-add" data-ex="${esc(n)}">＋ ${esc(n)}</button>`).join("")}</div>`;
   row.querySelectorAll(".extra-add").forEach((b) =>
     b.addEventListener("click", () => {
@@ -353,11 +381,11 @@ function startRest(sec) {
 function tickRest() {
   const remainMs = restEndTs - Date.now();
   const remain = Math.max(0, Math.ceil(remainMs / 1000));
-  $("restTime").textContent = remain;
+  const timeEl = $("restTime");
+  timeEl.textContent = remain;
+  timeEl.classList.toggle("ending", remain <= 5);
   const ratio = Math.max(0, remainMs / (restTotal * 1000));
-  const fg = $("ringFg");
-  fg.style.strokeDashoffset = String(RING_LEN * (1 - ratio));
-  fg.style.stroke = remain <= 5 ? "var(--amber)" : "var(--primary)";
+  $("ringFg").style.strokeDashoffset = String(RING_LEN * (1 - ratio));
   if (remainMs <= 0) {
     stopRest();
     notifyRestDone();
