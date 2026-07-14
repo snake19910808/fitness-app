@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0f1420">
+<title>健身紀錄</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-title" id="topbarTitle">訓練</div>
+  <div class="topbar-date" id="topbarDate"></div>
+</header>
+
+<main id="main">
+
+  <!-- ============ 訓練 ============ -->
+  <section class="view" id="view-train">
+    <!-- 未開始訓練 -->
+    <div id="trainIdle">
+      <div class="card">
+        <div class="card-title">開始今天的訓練</div>
+        <div class="course-btns">
+          <button class="btn btn-primary btn-big" data-start="A">A 課<span class="btn-sub">腿推・胸推・滑輪下拉</span></button>
+          <button class="btn btn-primary btn-big" data-start="B">B 課<span class="btn-sub">腿推・坐姿划船・肩推</span></button>
+          <button class="btn btn-ghost btn-big" data-start="FREE">自由訓練<span class="btn-sub">自己挑動作</span></button>
+        </div>
+      </div>
+      <div class="card" id="lastWorkoutCard" hidden>
+        <div class="card-title">上次訓練</div>
+        <div id="lastWorkoutSummary" class="muted"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">建議節奏</div>
+        <div class="muted">每項動作 2~3 組 × 10~15 下，最後 2 下有點吃力但動作不變形。一週 2 次 → A、B 各一次。</div>
+      </div>
+    </div>
+
+    <!-- 訓練進行中 -->
+    <div id="trainActive" hidden>
+      <div class="workout-head">
+        <div>
+          <div class="workout-course" id="woCourse"></div>
+          <div class="workout-timer muted" id="woElapsed">00:00</div>
+        </div>
+        <button class="btn btn-danger" id="btnFinish">結束訓練</button>
+      </div>
+      <div id="exerciseList"></div>
+      <button class="btn btn-ghost btn-block" id="btnAddExercise">＋ 新增動作</button>
+    </div>
+  </section>
+
+  <!-- ============ 體重 ============ -->
+  <section class="view" id="view-weight" hidden>
+    <div class="card">
+      <div class="card-title">記錄體重</div>
+      <div class="row">
+        <input type="number" id="weightInput" inputmode="decimal" step="0.1" min="30" max="200" placeholder="kg">
+        <input type="date" id="weightDate">
+        <button class="btn btn-primary" id="btnSaveWeight">儲存</button>
+      </div>
+      <div class="goal-line muted" id="weightGoalLine"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">趨勢（最近 60 筆）</div>
+      <div id="weightChart" class="chart-box"><div class="muted center">還沒有資料</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">紀錄</div>
+      <div id="weightList"></div>
+    </div>
+  </section>
+
+  <!-- ============ 打卡 ============ -->
+  <section class="view" id="view-diet" hidden>
+    <div class="card">
+      <div class="card-title">今日飲食規則</div>
+      <button class="check-card" id="ruleSugar">
+        <span class="check-icon">🥤</span>
+        <span class="check-text"><b>沒喝含糖飲料</b><span class="muted">無糖茶／氣泡水／黑咖啡 OK</span></span>
+        <span class="check-mark">✓</span>
+      </button>
+      <button class="check-card" id="ruleLate">
+        <span class="check-icon">🌙</span>
+        <span class="check-text"><b>睡前 3 小時沒進食</b><span class="muted">真的餓 → 無糖豆漿或水煮蛋</span></span>
+        <span class="check-mark">✓</span>
+      </button>
+    </div>
+    <div class="card">
+      <div class="card-title">今日步數（選填）</div>
+      <div class="row">
+        <input type="number" id="stepsInput" inputmode="numeric" placeholder="看 Pixel 計步填入">
+        <button class="btn btn-primary" id="btnSaveSteps">儲存</button>
+      </div>
+      <div class="muted">目標：7,000 步</div>
+    </div>
+    <div class="card">
+      <div class="card-title">最近 7 天</div>
+      <div id="dietWeek" class="diet-week"></div>
+      <div id="dietStreak" class="muted"></div>
+    </div>
+  </section>
+
+  <!-- ============ 歷史 ============ -->
+  <section class="view" id="view-history" hidden>
+    <div class="card">
+      <div class="card-title">本週統計</div>
+      <div id="weekStats" class="stats-row"></div>
+    </div>
+    <div id="historyList"></div>
+  </section>
+
+  <!-- ============ 設定 ============ -->
+  <section class="view" id="view-settings" hidden>
+    <div class="card">
+      <div class="card-title">組間休息</div>
+      <div class="row">
+        <label class="muted">預設秒數</label>
+        <select id="restSecSelect">
+          <option value="60">60 秒</option>
+          <option value="90" selected>90 秒</option>
+          <option value="120">120 秒</option>
+          <option value="180">180 秒</option>
+        </select>
+      </div>
+      <label class="toggle-row"><span>結束時音效</span><input type="checkbox" id="optSound" checked></label>
+      <label class="toggle-row"><span>結束時震動</span><input type="checkbox" id="optVibrate" checked></label>
+    </div>
+    <div class="card">
+      <div class="card-title">資料備份</div>
+      <button class="btn btn-primary btn-block" id="btnExport">匯出 JSON 備份</button>
+      <button class="btn btn-ghost btn-block" id="btnImport">匯入 JSON 備份</button>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
+      <div class="muted">資料只存在這支手機裡，建議每週匯出一次備份。</div>
+    </div>
+    <div class="card">
+      <button class="btn btn-danger btn-block" id="btnWipe">清除全部資料</button>
+    </div>
+    <div class="muted center" id="versionLine">健身紀錄 v0.1.0 (Phase 1 MVP)</div>
+  </section>
+
+</main>
+
+<!-- 底部分頁 -->
+<nav class="tabbar">
+  <button class="tab active" data-view="train"><span class="tab-icon">🏋️</span>訓練</button>
+  <button class="tab" data-view="weight"><span class="tab-icon">⚖️</span>體重</button>
+  <button class="tab" data-view="diet"><span class="tab-icon">✅</span>打卡</button>
+  <button class="tab" data-view="history"><span class="tab-icon">📅</span>歷史</button>
+  <button class="tab" data-view="settings"><span class="tab-icon">⚙️</span>設定</button>
+</nav>
+
+<!-- 組間休息倒數 -->
+<div class="overlay" id="restOverlay" hidden>
+  <div class="rest-box">
+    <div class="rest-label">組間休息</div>
+    <svg class="rest-ring" viewBox="0 0 200 200">
+      <circle class="ring-bg" cx="100" cy="100" r="88"/>
+      <circle class="ring-fg" id="ringFg" cx="100" cy="100" r="88"/>
+    </svg>
+    <div class="rest-time" id="restTime">90</div>
+    <div class="rest-btns">
+      <button class="btn btn-ghost" id="btnRestPlus">＋30 秒</button>
+      <button class="btn btn-primary" id="btnRestSkip">跳過休息</button>
+    </div>
+  </div>
+</div>
+
+<!-- 動作選擇 -->
+<div class="overlay" id="pickerOverlay" hidden>
+  <div class="picker-box">
+    <div class="card-title">選擇動作</div>
+    <div id="pickerList" class="picker-list"></div>
+    <div class="row">
+      <input type="text" id="customExName" placeholder="或輸入自訂動作名稱">
+      <button class="btn btn-primary" id="btnCustomEx">加入</button>
+    </div>
+    <button class="btn btn-ghost btn-block" id="btnPickerClose">取消</button>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
