@@ -5,9 +5,10 @@
 const STORE_KEY = "fitapp.v1";
 
 const COURSES = {
-  A: { name: "A 課", exercises: ["腿推機", "胸推機", "滑輪下拉"] },
-  B: { name: "B 課", exercises: ["腿推機", "坐姿划船", "肩推機"] },
-  FREE: { name: "自由訓練", exercises: [] },
+  A: { name: "A 課", exercises: ["腿推機", "胸推機", "滑輪下拉"], extras: ["二頭彎舉", "捲腹"] },
+  B: { name: "B 課", exercises: ["腿推機", "坐姿划船", "肩推機"], extras: ["三頭下壓", "棒式(秒)"] },
+  C: { name: "C 課（居家）", exercises: ["深蹲", "伏地挺身", "臀橋", "棒式(秒)"], extras: ["原地登階(分)", "超人式"] },
+  FREE: { name: "自由訓練", exercises: [], extras: [] },
 };
 
 const LIBRARY = [
@@ -24,6 +25,10 @@ const LIBRARY = [
   { name: "三頭下壓", group: "手臂" },
   { name: "捲腹", group: "核心" },
   { name: "棒式(秒)", group: "核心" },
+  { name: "伏地挺身", group: "胸・居家" },
+  { name: "臀橋", group: "臀腿・居家" },
+  { name: "超人式", group: "下背・居家" },
+  { name: "原地登階(分)", group: "有氧・居家" },
   { name: "跑步機快走(分)", group: "有氧" },
   { name: "滑步機(分)", group: "有氧" },
 ];
@@ -198,6 +203,7 @@ function renderTrain() {
 function renderExercises() {
   const box = $("exerciseList");
   box.innerHTML = "";
+  renderExtras();
   state.active.entries.forEach((entry, idx) => {
     const last = lastRecord(entry.name);
     const lastSetHere = entry.sets[entry.sets.length - 1];
@@ -266,6 +272,27 @@ function renderExercises() {
 
     box.appendChild(card);
   });
+}
+
+/** 本課加碼動作：一鍵加入（有時間再做） */
+function renderExtras() {
+  const old = $("extrasRow");
+  if (old) old.remove();
+  const extras = (COURSES[state.active?.course]?.extras || [])
+    .filter((n) => !state.active.entries.some((e) => e.name === n));
+  if (!extras.length) return;
+  const row = document.createElement("div");
+  row.id = "extrasRow";
+  row.className = "card";
+  row.innerHTML = `<div class="card-title">加碼動作（有時間再做，每個 2 組）</div>
+    <div class="set-chips">${extras.map((n) => `<button class="set-chip extra-add" data-ex="${esc(n)}">＋ ${esc(n)}</button>`).join("")}</div>`;
+  row.querySelectorAll(".extra-add").forEach((b) =>
+    b.addEventListener("click", () => {
+      state.active.entries.push({ name: b.dataset.ex, sets: [] });
+      save();
+      renderExercises();
+    }));
+  $("btnAddExercise").before(row);
 }
 
 document.querySelectorAll("[data-start]").forEach((b) =>
