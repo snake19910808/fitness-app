@@ -161,7 +161,7 @@
     <div class="card">
       <button class="btn btn-danger btn-block" id="btnWipe">清除全部資料</button>
     </div>
-    <div class="muted center" id="versionLine">健身紀錄 v0.3.0 (課表 v3)</div>
+    <div class="muted center" id="versionLine">健身紀錄 v0.4.0 (IG 分享＋有氧細分)</div>
   </section>
 
 </main>
@@ -207,6 +207,19 @@
       <button class="btn btn-primary" id="btnCustomEx">加入</button>
     </div>
     <button class="btn btn-ghost btn-block" id="btnPickerClose">取消</button>
+  </div>
+</div>
+
+<!-- IG 分享卡 -->
+<div class="overlay" id="shareOverlay" hidden>
+  <div class="share-box">
+    <img id="shareImg" alt="訓練總結分享卡">
+    <div class="share-btns">
+      <button class="btn btn-primary" id="btnShareNative">📤 分享</button>
+      <button class="btn btn-ghost" id="btnShareDownload">下載</button>
+      <button class="btn btn-ghost" id="btnShareCopy">複製文字</button>
+    </div>
+    <button class="btn btn-ghost btn-block" id="btnShareClose">關閉</button>
   </div>
 </div>
 

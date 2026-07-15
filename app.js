@@ -60,6 +60,38 @@ const LIBRARY = [
   { name: "滑步機(分)", group: "有氧" },
 ];
 
+/* 有氧動作的專屬欄位（名稱以「(分)」結尾者視為有氧） */
+const CARDIO_FIELDS = {
+  "跑步機坡度快走(分)": [
+    { key: "mins", label: "分鐘", step: 5, def: 30 },
+    { key: "incline", label: "坡度%", step: 1, def: 6 },
+    { key: "speed", label: "km/h", step: 0.5, def: 5.5 },
+  ],
+  "滑步機(分)": [
+    { key: "mins", label: "分鐘", step: 5, def: 30 },
+    { key: "resistance", label: "阻力", step: 1, def: 5 },
+  ],
+};
+
+function cardioConfig(name) {
+  if (CARDIO_FIELDS[name]) return CARDIO_FIELDS[name];
+  if (/\(分\)$/.test(name)) return [{ key: "mins", label: "分鐘", step: 5, def: 10 }];
+  return null;
+}
+
+/** 單組紀錄的顯示字串（重訓 / 有氧通用；相容舊資料的 reps=分鐘 寫法） */
+function fmtSet(exName, s) {
+  if (cardioConfig(exName) || s.mins != null) {
+    const mins = s.mins != null ? s.mins : s.reps;
+    const parts = [`${mins}分`];
+    if (s.incline != null) parts.push(`坡${s.incline}%`);
+    if (s.speed != null) parts.push(`${s.speed}km/h`);
+    if (s.resistance != null) parts.push(`阻力${s.resistance}`);
+    return parts.join("・");
+  }
+  return `${s.kg}kg×${s.reps}`;
+}
+
 let state = loadState();
 
 function defaultState() {
@@ -177,6 +209,7 @@ function finishWorkout() {
   stopRest();
   renderTrain();
   toast("💪 訓練完成，做得好！");
+  shareWorkout(w); // 完成即產生 IG 分享卡
 }
 
 /** 找某動作最近一次（非本次）的紀錄字串 */
@@ -184,7 +217,7 @@ function lastRecord(exName) {
   for (let i = state.workouts.length - 1; i >= 0; i--) {
     const entry = state.workouts[i].entries.find((e) => e.name === exName && e.sets.length);
     if (entry) {
-      const setsStr = entry.sets.map((s) => `${s.kg}kg×${s.reps}`).join("、");
+      const setsStr = entry.sets.map((s) => fmtSet(exName, s)).join("、");
       return { text: setsStr, date: state.workouts[i].date, lastSet: entry.sets[entry.sets.length - 1] };
     }
   }
@@ -234,61 +267,92 @@ function renderExercises() {
   state.active.entries.forEach((entry, idx) => {
     const last = lastRecord(entry.name);
     const lastSetHere = entry.sets[entry.sets.length - 1];
-    const defKg = lastSetHere ? lastSetHere.kg : (last ? last.lastSet.kg : "");
-    const defReps = lastSetHere ? lastSetHere.reps : (last ? last.lastSet.reps : "");
+    const cardio = cardioConfig(entry.name);
 
     const card = document.createElement("div");
     card.className = "exercise-card";
-    card.innerHTML = `
+
+    const headHtml = `
       <div class="ex-head">
         <div class="ex-name">${esc(entry.name)}</div>
         <button class="ex-del" title="移除動作">✕</button>
       </div>
       <div class="ex-last">${last ? `上次 (${fmtDateShort(last.date)})：${esc(last.text)}` : "第一次做這個動作"}</div>
       <div class="set-chips">
-        ${entry.sets.map((s, i) => `<span class="set-chip">第${i + 1}組 <b>${s.kg}kg×${s.reps}</b></span>`).join("")}
-      </div>
-      <div class="set-input-row">
-        <div class="num-group">
-          <button class="stepper" data-f="kg" data-d="-1">−</button>
-          <input type="number" class="in-kg" inputmode="decimal" step="0.5" placeholder="重量" value="${defKg}">
-          <span class="unit">kg</span>
-          <button class="stepper" data-f="kg" data-d="1">＋</button>
-        </div>
-        <div class="num-group">
-          <button class="stepper" data-f="reps" data-d="-1">−</button>
-          <input type="number" class="in-reps" inputmode="numeric" placeholder="次數" value="${defReps}">
-          <span class="unit">次</span>
-          <button class="stepper" data-f="reps" data-d="1">＋</button>
-        </div>
-        <button class="btn-set">完成一組</button>
+        ${entry.sets.map((s, i) => `<span class="set-chip">${cardio ? "" : `第${i + 1}組 `}<b>${esc(fmtSet(entry.name, s))}</b></span>`).join("")}
       </div>`;
 
-    const inKg = card.querySelector(".in-kg");
-    const inReps = card.querySelector(".in-reps");
+    if (cardio) {
+      // 有氧：分鐘＋機台專屬欄位（坡度/速度/阻力）
+      card.innerHTML = `${headHtml}
+        <div class="cardio-fields">
+          ${cardio.map((f) => {
+            const def = lastSetHere?.[f.key] ?? last?.lastSet?.[f.key] ?? f.def;
+            return `<label class="cardio-field"><input type="number" inputmode="decimal" step="${f.step}" data-key="${f.key}" value="${def}"><span>${f.label}</span></label>`;
+          }).join("")}
+        </div>
+        <button class="btn-set btn-cardio">完成有氧 ✓</button>`;
 
-    card.querySelectorAll(".stepper").forEach((b) => {
-      b.addEventListener("click", () => {
-        const input = b.dataset.f === "kg" ? inKg : inReps;
-        const step = b.dataset.f === "kg" ? 2.5 : 1;
-        const cur = parseFloat(input.value) || 0;
-        const next = Math.max(0, cur + step * Number(b.dataset.d));
-        input.value = b.dataset.f === "kg" ? String(Math.round(next * 10) / 10) : String(Math.round(next));
+      card.querySelector(".btn-cardio").addEventListener("click", () => {
+        const rec = { ts: Date.now() };
+        let ok = true;
+        cardio.forEach((f) => {
+          const v = parseFloat(card.querySelector(`[data-key="${f.key}"]`).value);
+          if (f.key === "mins" && (isNaN(v) || v <= 0)) ok = false;
+          if (!isNaN(v)) rec[f.key] = v;
+        });
+        if (!ok) { toast("請先填分鐘數"); return; }
+        entry.sets.push(rec);
+        save();
+        renderExercises();
+        toast("🏃 有氧完成，辛苦了！");
       });
-    });
+    } else {
+      const defKg = lastSetHere ? lastSetHere.kg : (last ? last.lastSet.kg : "");
+      const defReps = lastSetHere ? lastSetHere.reps : (last ? last.lastSet.reps : "");
+      card.innerHTML = `${headHtml}
+        <div class="set-input-row">
+          <div class="num-group">
+            <button class="stepper" data-f="kg" data-d="-1">−</button>
+            <input type="number" class="in-kg" inputmode="decimal" step="0.5" placeholder="重量" value="${defKg}">
+            <span class="unit">kg</span>
+            <button class="stepper" data-f="kg" data-d="1">＋</button>
+          </div>
+          <div class="num-group">
+            <button class="stepper" data-f="reps" data-d="-1">−</button>
+            <input type="number" class="in-reps" inputmode="numeric" placeholder="次數" value="${defReps}">
+            <span class="unit">次</span>
+            <button class="stepper" data-f="reps" data-d="1">＋</button>
+          </div>
+          <button class="btn-set">完成一組</button>
+        </div>`;
 
-    card.querySelector(".btn-set").addEventListener("click", () => {
-      const kg = parseFloat(inKg.value);
-      const reps = parseInt(inReps.value, 10);
-      if (isNaN(kg) || kg < 0 || isNaN(reps) || reps <= 0) {
-        toast("請先填重量和次數（徒手動作重量填 0）");
-        return;
-      }
-      entry.sets.push({ kg, reps, ts: Date.now() });
-      save();
-      renderExercises();
-      startRest(state.settings.restSec);
-    });
+      const inKg = card.querySelector(".in-kg");
+      const inReps = card.querySelector(".in-reps");
+
+      card.querySelectorAll(".stepper").forEach((b) => {
+        b.addEventListener("click", () => {
+          const input = b.dataset.f === "kg" ? inKg : inReps;
+          const step = b.dataset.f === "kg" ? 2.5 : 1;
+          const cur = parseFloat(input.value) || 0;
+          const next = Math.max(0, cur + step * Number(b.dataset.d));
+          input.value = b.dataset.f === "kg" ? String(Math.round(next * 10) / 10) : String(Math.round(next));
+        });
+      });
+
+      card.querySelector(".btn-set").addEventListener("click", () => {
+        const kg = parseFloat(inKg.value);
+        const reps = parseInt(inReps.value, 10);
+        if (isNaN(kg) || kg < 0 || isNaN(reps) || reps <= 0) {
+          toast("請先填重量和次數（徒手動作重量填 0）");
+          return;
+        }
+        entry.sets.push({ kg, reps, ts: Date.now() });
+        save();
+        renderExercises();
+        startRest(state.settings.restSec);
+      });
+    }
 
     card.querySelector(".ex-del").addEventListener("click", () => {
       if (entry.sets.length && !confirm(`「${entry.name}」已記錄 ${entry.sets.length} 組，確定移除？`)) return;
@@ -611,7 +675,7 @@ function renderHistory() {
   const weekWos = state.workouts.filter((w) => w.date >= mondayStr);
   const weekSets = weekWos.reduce((a, w) => a + w.entries.reduce((b, e) => b + e.sets.length, 0), 0);
   const weekVol = weekWos.reduce((a, w) =>
-    a + w.entries.reduce((b, e) => b + e.sets.reduce((c, s) => c + s.kg * s.reps, 0), 0), 0);
+    a + w.entries.reduce((b, e) => b + e.sets.reduce((c, s) => c + (s.kg || 0) * (s.reps || 0), 0), 0), 0);
   const dietOkDays = Object.entries(state.diet)
     .filter(([d, r]) => d >= mondayStr && r.sugar && r.late).length;
 
@@ -640,13 +704,17 @@ function renderHistory() {
       <div class="h-detail" hidden>
         ${w.entries.map((e) => `
           <div class="h-ex"><b>${esc(e.name)}</b>
-          ${e.sets.map((s) => `${s.kg}kg×${s.reps}`).join("、")}</div>`).join("")}
-        <button class="h-del">刪除這筆紀錄</button>
+          ${e.sets.map((s) => esc(fmtSet(e.name, s))).join("、")}</div>`).join("")}
+        <div class="h-actions">
+          <button class="btn btn-primary h-share">📤 IG 分享卡</button>
+          <button class="h-del">刪除這筆紀錄</button>
+        </div>
       </div>`;
     item.querySelector(".h-head").addEventListener("click", () => {
       const d = item.querySelector(".h-detail");
       d.hidden = !d.hidden;
     });
+    item.querySelector(".h-share").addEventListener("click", () => shareWorkout(w));
     item.querySelector(".h-del").addEventListener("click", () => {
       if (!confirm(`刪除 ${w.date} 的訓練紀錄？此動作無法復原。`)) return;
       state.workouts = state.workouts.filter((x) => x.id !== w.id);
@@ -714,6 +782,204 @@ $("btnWipe").addEventListener("click", () => {
   toast("已清除");
   showView("train");
 });
+
+/* ================= IG 分享卡 ================= */
+let currentShare = null;
+
+function workoutDayNumber(w) {
+  const sorted = [...state.workouts].sort((a, b) => a.date.localeCompare(b.date) || a.startTs - b.startTs);
+  return sorted.findIndex((x) => x.id === w.id) + 1;
+}
+
+function bestSet(exName, sets) {
+  if (cardioConfig(exName)) return sets[sets.length - 1];
+  return sets.reduce((a, s) => (s.kg > a.kg || (s.kg === a.kg && s.reps > a.reps) ? s : a), sets[0]);
+}
+
+function workoutStats(w) {
+  const strengthEntries = w.entries.filter((e) => !cardioConfig(e.name));
+  const sets = strengthEntries.reduce((a, e) => a + e.sets.length, 0);
+  const vol = strengthEntries.reduce((a, e) => a + e.sets.reduce((c, s) => c + (s.kg || 0) * (s.reps || 0), 0), 0);
+  const mins = w.endTs ? Math.round((w.endTs - w.startTs) / 60000) : 0;
+  return { sets, vol: Math.round(vol), mins };
+}
+
+function shareText(w) {
+  const day = workoutDayNumber(w);
+  const st = workoutStats(w);
+  const lines = w.entries.map((e) => {
+    const cardio = cardioConfig(e.name);
+    if (cardio) return `🏃 ${e.name.replace(/\(分\)$/, "")} ${fmtSet(e.name, e.sets[e.sets.length - 1])}`;
+    const b = bestSet(e.name, e.sets);
+    return `▪ ${e.name} ${b.kg}kg×${b.reps}（${e.sets.length}組）`;
+  });
+  return [
+    `🏋️ 健身紀錄 Day ${day}`,
+    `📅 ${w.date}｜${COURSES[w.course]?.name || w.course}`,
+    `⏱ ${st.mins} 分鐘｜${st.sets} 組｜總量 ${st.vol.toLocaleString()} kg`,
+    `────────`,
+    ...lines,
+    `────────`,
+    `#健身紀錄 #減脂日記 #Day${day} #健身初心者`,
+  ].join("\n");
+}
+
+function makeShareCard(w) {
+  const W = 1080, H = 1350;
+  const c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const x = c.getContext("2d");
+  const day = workoutDayNumber(w);
+  const st = workoutStats(w);
+
+  // 背景
+  const bg = x.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#0d1424");
+  bg.addColorStop(1, "#0a0e17");
+  x.fillStyle = bg;
+  x.fillRect(0, 0, W, H);
+  let g = x.createRadialGradient(W * .85, 60, 0, W * .85, 60, 560);
+  g.addColorStop(0, "rgba(124,108,246,.30)"); g.addColorStop(1, "rgba(124,108,246,0)");
+  x.fillStyle = g; x.fillRect(0, 0, W, 760);
+  g = x.createRadialGradient(60, 180, 0, 60, 180, 520);
+  g.addColorStop(0, "rgba(91,140,255,.26)"); g.addColorStop(1, "rgba(91,140,255,0)");
+  x.fillStyle = g; x.fillRect(0, 0, W, 800);
+
+  const font = (wgt, size) => `${wgt} ${size}px "Noto Sans TC","Segoe UI",sans-serif`;
+
+  // 頁首
+  x.fillStyle = "rgba(147,161,189,.9)";
+  x.font = font(700, 30);
+  x.textAlign = "left";
+  x.fillText("W O R K O U T   L O G", 72, 110);
+  x.fillStyle = "#eef2fa";
+  x.font = font(900, 84);
+  x.fillText(w.date.replaceAll("-", "."), 72, 210);
+  // Day 徽章
+  const badge = `DAY ${day}`;
+  x.font = font(900, 40);
+  const bw = x.measureText(badge).width + 56;
+  const bgrad = x.createLinearGradient(W - 72 - bw, 0, W - 72, 0);
+  bgrad.addColorStop(0, "#5b8cff"); bgrad.addColorStop(1, "#7c6cf6");
+  x.fillStyle = bgrad;
+  roundRect(x, W - 72 - bw, 140, bw, 76, 38);
+  x.fill();
+  x.fillStyle = "#fff";
+  x.fillText(badge, W - 72 - bw + 28, 193);
+  // 課表名
+  x.fillStyle = "#8fb0ff";
+  x.font = font(800, 46);
+  x.fillText(COURSES[w.course]?.name || w.course, 72, 286);
+
+  // 統計列
+  const stats = [
+    [String(st.mins), "分鐘"],
+    [String(st.sets), "組數"],
+    [st.vol.toLocaleString(), "總量 kg"],
+  ];
+  const sw = (W - 144 - 40) / 3;
+  stats.forEach(([num, label], i) => {
+    const sx = 72 + i * (sw + 20);
+    x.fillStyle = "rgba(255,255,255,.05)";
+    roundRect(x, sx, 330, sw, 150, 24);
+    x.fill();
+    x.strokeStyle = "rgba(255,255,255,.10)";
+    x.lineWidth = 2;
+    roundRect(x, sx, 330, sw, 150, 24);
+    x.stroke();
+    x.textAlign = "center";
+    x.fillStyle = "#8fb0ff";
+    x.font = font(900, 58);
+    x.fillText(num, sx + sw / 2, 410);
+    x.fillStyle = "rgba(147,161,189,.95)";
+    x.font = font(600, 26);
+    x.fillText(label, sx + sw / 2, 452);
+  });
+
+  // 動作清單
+  x.textAlign = "left";
+  let y = 570;
+  const rows = w.entries.slice(0, 8);
+  rows.forEach((e) => {
+    const cardio = cardioConfig(e.name);
+    x.fillStyle = "rgba(255,255,255,.045)";
+    roundRect(x, 72, y - 52, W - 144, 78, 18);
+    x.fill();
+    x.fillStyle = cardio ? "#34d399" : "#eef2fa";
+    x.font = font(800, 36);
+    x.fillText((cardio ? "🏃 " : "") + e.name.replace(/\(分\)$|\(秒\)$/, ""), 96, y);
+    x.textAlign = "right";
+    x.fillStyle = cardio ? "#34d399" : "#8fb0ff";
+    x.font = font(800, 34);
+    const b = bestSet(e.name, e.sets);
+    x.fillText(cardio ? fmtSet(e.name, b) : `${b.kg}kg × ${b.reps}｜${e.sets.length} 組`, W - 96, y);
+    x.textAlign = "left";
+    y += 92;
+  });
+
+  // 頁尾
+  x.fillStyle = "rgba(147,161,189,.55)";
+  x.font = font(700, 28);
+  x.fillText(`#健身紀錄  #減脂日記  #Day${day}`, 72, H - 76);
+  x.textAlign = "right";
+  x.fillStyle = "rgba(91,140,255,.65)";
+  x.font = font(900, 30);
+  x.fillText("🏋️ 健身紀錄 App", W - 72, H - 76);
+
+  return new Promise((resolve) => c.toBlob(resolve, "image/png"));
+}
+
+function roundRect(x, px, py, pw, ph, r) {
+  x.beginPath();
+  x.moveTo(px + r, py);
+  x.arcTo(px + pw, py, px + pw, py + ph, r);
+  x.arcTo(px + pw, py + ph, px, py + ph, r);
+  x.arcTo(px, py + ph, px, py, r);
+  x.arcTo(px, py, px + pw, py, r);
+  x.closePath();
+}
+
+async function shareWorkout(w) {
+  const blob = await makeShareCard(w);
+  if (currentShare?.url) URL.revokeObjectURL(currentShare.url);
+  const url = URL.createObjectURL(blob);
+  currentShare = { blob, url, w };
+  $("shareImg").src = url;
+  $("shareOverlay").hidden = false;
+}
+
+$("btnShareNative").addEventListener("click", async () => {
+  if (!currentShare) return;
+  const file = new File([currentShare.blob], `workout-${currentShare.w.date}.png`, { type: "image/png" });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] });
+    } catch (e) { /* 使用者取消分享 */ }
+  } else {
+    toast("此裝置不支援直接分享，改用「下載圖片」");
+  }
+});
+
+$("btnShareDownload").addEventListener("click", () => {
+  if (!currentShare) return;
+  const a = document.createElement("a");
+  a.href = currentShare.url;
+  a.download = `workout-${currentShare.w.date}.png`;
+  a.click();
+  toast("🖼 圖片已下載");
+});
+
+$("btnShareCopy").addEventListener("click", async () => {
+  if (!currentShare) return;
+  try {
+    await navigator.clipboard.writeText(shareText(currentShare.w));
+    toast("📋 文字版已複製，可直接貼到 IG");
+  } catch {
+    toast("複製失敗，請改用下載圖片");
+  }
+});
+
+$("btnShareClose").addEventListener("click", () => ($("shareOverlay").hidden = true));
 
 /* ================= 啟動 ================= */
 $("topbarDate").textContent = (() => {
