@@ -182,7 +182,7 @@
     <div class="card">
       <button class="btn btn-danger btn-block" id="btnWipe">清除全部資料</button>
     </div>
-    <div class="muted center" id="versionLine">健身紀錄 v0.6.1 (模型選擇＋自動容錯)</div>
+    <div class="muted center" id="versionLine">健身紀錄 v0.6.2 (拍照問教練＋快取修正)</div>
   </section>
 
 </main>
@@ -250,12 +250,19 @@
   <div class="chat-box">
     <div class="chat-head"><b>🤖 AI 教練</b><button id="btnChatClose">✕</button></div>
     <div class="chat-msgs" id="chatMsgs"></div>
+    <div class="chat-attach" id="chatAttachBar" hidden>
+      <img id="chatAttachImg" alt="照片預覽">
+      <span class="muted">照片已附上，按送出詢問</span>
+      <button id="btnChatAttachRemove">✕</button>
+    </div>
     <div class="chat-input">
+      <button class="chat-cam" id="btnChatPhoto" title="拍器材照片">📷</button>
       <input type="text" id="chatInput" placeholder="問 AI 教練…" autocomplete="off">
       <button class="btn btn-primary" id="btnChatSend">送出</button>
     </div>
   </div>
 </div>
+<input type="file" id="chatFile" accept="image/*" capture="environment" hidden>
 
 <button id="fabAI" class="fab-ai" hidden>🤖</button>
 

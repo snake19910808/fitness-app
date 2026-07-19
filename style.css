@@ -409,9 +409,25 @@ button.chip-log:active{border-color:var(--red);background:rgba(248,113,113,.12)}
 .chat-msg{max-width:86%;padding:10px 14px;border-radius:16px;font-size:14.5px;line-height:1.55}
 .cm-user{align-self:flex-end;background:var(--grad-primary);color:#fff;border-bottom-right-radius:5px}
 .cm-ai{align-self:flex-start;background:var(--card2);border:1px solid var(--line);border-bottom-left-radius:5px}
-.chat-input{display:flex;gap:8px;padding:12px;border-top:1px solid var(--line)}
+.chat-input{display:flex;gap:8px;padding:12px;border-top:1px solid var(--line);align-items:center}
 .chat-input input{flex:1}
 .chat-input .btn{padding:10px 16px}
+.chat-cam{
+  width:42px;height:42px;border-radius:12px;font-size:19px;flex-shrink:0;
+  background:var(--card2);border:1px solid var(--line-strong);
+  display:flex;align-items:center;justify-content:center;
+}
+.chat-cam:active{border-color:var(--primary)}
+.chat-attach{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 12px;border-top:1px solid var(--line);font-size:13px;
+}
+.chat-attach img{width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid var(--line-strong)}
+.chat-attach button{color:var(--muted);font-size:16px;padding:4px 8px;margin-left:auto}
+.chat-img{
+  display:block;max-width:170px;border-radius:10px;margin-bottom:6px;
+  border:1px solid rgba(255,255,255,.2);
+}
 
 /* ====== AI 飲食 ====== */
 .meal-result{

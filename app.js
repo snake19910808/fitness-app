@@ -1149,7 +1149,19 @@ async function geminiCall(contents, { json = false, system = "" } = {}) {
   throw lastErr;
 }
 
-const COACH_SYSTEM = "你是一位專業健身教練兼營養師，服務對象：35歲男性、163cm、減脂期健身初學者、目標55kg、只做機械式器材與居家徒手訓練。回答用繁體中文、精簡（150字內）、務實、先講結論。若使用者提到關節刺痛或明顯不適，一律建議停止該動作並就醫評估。";
+const COACH_SYSTEM = "你是一位專業健身教練兼營養師，服務對象：35歲男性、163cm、減脂期健身初學者、目標55kg、只做機械式器材與居家徒手訓練。回答用繁體中文、精簡（150字內）、務實、先講結論。若使用者提到關節刺痛或明顯不適，一律建議停止該動作並就醫評估。使用者可能傳健身器材或動作的照片：請先辨識那是什麼器材、練哪個部位，判斷能否替代他課表中的動作，並給椅墊/握把設定、起始重量與操作要點。";
+
+/** v0.6.0 舊設定只存單一模型 → 自動補抓完整模型清單（不用重貼 key） */
+async function migrateGeminiCfg() {
+  const cfg = geminiCfg();
+  if (!cfg || (cfg.models && cfg.models.length)) return;
+  try {
+    const models = await validateGeminiKey(cfg.key);
+    cfg.models = models;
+    if (!models.includes(cfg.model)) cfg.model = models[0];
+    saveGeminiCfg(cfg);
+  } catch { /* 離線或暫時失敗，下次啟動再試 */ }
+}
 
 function coachContext() {
   const info = todayPlanInfo();
@@ -1176,18 +1188,28 @@ function openChat() {
 function renderChat() {
   const box = $("chatMsgs");
   box.innerHTML = chatLog.length
-    ? chatLog.map((m) => `<div class="chat-msg ${m.role === "user" ? "cm-user" : "cm-ai"}">${esc(m.text).replace(/\n/g, "<br>")}</div>`).join("")
-    : `<div class="muted center" style="padding:20px 10px">問我任何訓練或飲食問題，例如：<br>「器材被占用可以用什麼代替？」<br>「今天膝蓋有點緊要注意什麼？」</div>`;
+    ? chatLog.map((m) => `<div class="chat-msg ${m.role === "user" ? "cm-user" : "cm-ai"}">${m.img ? `<img class="chat-img" src="data:image/jpeg;base64,${m.img}">` : ""}${esc(m.text).replace(/\n/g, "<br>")}</div>`).join("")
+    : `<div class="muted center" style="padding:20px 10px">問我任何訓練或飲食問題，例如：<br>「器材被占用可以用什麼代替？」<br>「今天膝蓋有點緊要注意什麼？」<br><br>📷 也可以拍器材照片問「這台能替代嗎？」</div>`;
   box.scrollTop = box.scrollHeight;
 }
 
+let chatAttach = null;
+
 async function sendChat(text) {
-  if (!text.trim()) return;
-  chatLog.push({ role: "user", text });
+  const img = chatAttach;
+  if (!text.trim() && !img) return;
+  if (!text.trim()) text = "請看這張照片：這台器材適合替代我今天課表中的哪個動作嗎？如果適合，設定和重量要怎麼抓？";
+  chatAttach = null;
+  $("chatAttachBar").hidden = true;
+  chatLog.push({ role: "user", text, img });
   chatLog.push({ role: "model", text: "…思考中" });
   renderChat();
   try {
-    const contents = chatLog.slice(0, -1).map((m) => ({ role: m.role, parts: [{ text: m.text }] }));
+    const contents = chatLog.slice(0, -1).map((m) => {
+      const parts = [{ text: m.text }];
+      if (m.img) parts.push({ inlineData: { mimeType: "image/jpeg", data: m.img } });
+      return { role: m.role, parts };
+    });
     const reply = await geminiCall(contents, { system: COACH_SYSTEM + "\n\n目前狀態：\n" + coachContext() });
     chatLog[chatLog.length - 1] = { role: "model", text: reply || "（沒有回應，再問一次試試）" };
   } catch (e) {
@@ -1495,6 +1517,21 @@ $("btnChatSend").addEventListener("click", () => {
 $("chatInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); $("btnChatSend").click(); }
 });
+$("btnChatPhoto").addEventListener("click", () => $("chatFile").click());
+$("chatFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  try {
+    chatAttach = await fileToResizedBase64(f);
+    $("chatAttachImg").src = "data:image/jpeg;base64," + chatAttach;
+    $("chatAttachBar").hidden = false;
+  } catch { toast("讀取照片失敗"); }
+});
+$("btnChatAttachRemove").addEventListener("click", () => {
+  chatAttach = null;
+  $("chatAttachBar").hidden = true;
+});
 $("btnMealPhoto").addEventListener("click", () => {
   if (!geminiCfg()) { toast("先到設定頁啟用 Gemini AI"); showView("settings"); return; }
   $("mealFile").click();
@@ -1519,3 +1556,4 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 showView("train");
 refreshPlan();
 updateFab();
+migrateGeminiCfg();
