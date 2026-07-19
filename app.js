@@ -104,6 +104,8 @@ const DEFAULT_PLAN = {
   deloadEvery: 5,
   cardioTargetMins: 30,
   stepsTarget: 7000,
+  kcalTarget: 1650,
+  proteinTarget: 120,
   phases: [],
 };
 
@@ -879,6 +881,8 @@ function renderDiet() {
   $("dietStreak").textContent = streak > 0
     ? `🔥 兩規則連續達成 ${streak} 天`
     : "上排=沒喝含糖飲料、下排=睡前3小時沒進食";
+
+  renderMeals();
 }
 
 $("ruleSugar").addEventListener("click", () => {
@@ -980,7 +984,31 @@ function renderSettings() {
   $("restSecSelect").value = String(state.settings.restSec);
   $("optSound").checked = state.settings.sound;
   $("optVibrate").checked = state.settings.vibrate;
+  const cfg = geminiCfg();
+  $("geminiStatus").innerHTML = cfg
+    ? `✅ 已啟用（${esc(cfg.model)}）<button class="link-btn" id="btnRemoveKey">移除 key</button>`
+    : "未設定。key 只會存在這支手機，不會進備份檔或雲端。";
+  if (cfg) $("btnRemoveKey").addEventListener("click", () => {
+    if (!confirm("移除 Gemini key？AI 功能將停用。")) return;
+    saveGeminiCfg(null);
+    toast("已移除");
+  });
 }
+
+$("btnSaveKey").addEventListener("click", async () => {
+  const key = $("geminiKey").value.trim();
+  if (!key) { toast("請先貼上 API key"); return; }
+  $("geminiStatus").textContent = "驗證中…";
+  try {
+    const model = await validateGeminiKey(key);
+    saveGeminiCfg({ key, model });
+    $("geminiKey").value = "";
+    toast("✅ AI 教練已啟用");
+  } catch (e) {
+    renderSettings();
+    toast("❌ " + e.message);
+  }
+});
 
 $("restSecSelect").addEventListener("change", (e) => {
   state.settings.restSec = parseInt(e.target.value, 10);
@@ -1032,6 +1060,180 @@ $("btnWipe").addEventListener("click", () => {
   toast("已清除");
   showView("train");
 });
+
+/* ================= Gemini AI 教練 ================= */
+/* key 只存 localStorage "fitapp.gemini"，不放進 state → 匯出備份不會外洩 */
+function geminiCfg() {
+  try { return JSON.parse(localStorage.getItem("fitapp.gemini")) || null; }
+  catch { return null; }
+}
+function saveGeminiCfg(cfg) {
+  if (cfg) localStorage.setItem("fitapp.gemini", JSON.stringify(cfg));
+  else localStorage.removeItem("fitapp.gemini");
+  updateFab();
+  renderSettings();
+}
+
+async function validateGeminiKey(key) {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}&pageSize=100`);
+  if (!res.ok) throw new Error(`key 無效或無權限（${res.status}）`);
+  const data = await res.json();
+  const names = (data.models || []).map((m) => m.name.replace("models/", ""));
+  const model =
+    names.find((n) => n === "gemini-flash-latest") ||
+    names.find((n) => n.startsWith("gemini") && n.includes("flash") && !n.includes("lite") && !n.includes("image")) ||
+    names.find((n) => n.includes("flash"));
+  if (!model) throw new Error("此 key 沒有可用的 Flash 模型");
+  return model;
+}
+
+async function geminiCall(contents, { json = false, system = "" } = {}) {
+  const cfg = geminiCfg();
+  if (!cfg) throw new Error("尚未設定 Gemini API key（設定頁）");
+  const body = { contents };
+  if (system) body.systemInstruction = { parts: [{ text: system }] };
+  if (json) body.generationConfig = { responseMimeType: "application/json" };
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model}:generateContent?key=${encodeURIComponent(cfg.key)}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+  );
+  if (!res.ok) throw new Error(`AI 呼叫失敗（${res.status}）`);
+  const data = await res.json();
+  return (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+}
+
+const COACH_SYSTEM = "你是一位專業健身教練兼營養師，服務對象：35歲男性、163cm、減脂期健身初學者、目標55kg、只做機械式器材與居家徒手訓練。回答用繁體中文、精簡（150字內）、務實、先講結論。若使用者提到關節刺痛或明顯不適，一律建議停止該動作並就醫評估。";
+
+function coachContext() {
+  const info = todayPlanInfo();
+  const kg = state.weights.length ? state.weights[state.weights.length - 1].kg : 75;
+  const lines = [`最新體重 ${kg}kg。`];
+  lines.push(info.type === "train" ? `今日排程：訓練日（${COURSES[info.nextCourse].name}）` : info.type === "rest" ? "今日排程：休息日" : "今日已完成訓練");
+  if (state.active) {
+    const done = state.active.entries.filter((e) => e.sets.length).map((e) => `${e.name}×${e.sets.length}組`).join("、");
+    lines.push(`目前訓練中：${COURSES[state.active.course]?.name || "自由訓練"}，已完成：${done || "尚未開始"}`);
+  }
+  return lines.join("\n");
+}
+
+/* ---- 聊天室 ---- */
+let chatLog = [];
+
+function updateFab() { $("fabAI").hidden = !geminiCfg(); }
+
+function openChat() {
+  $("chatOverlay").hidden = false;
+  renderChat();
+}
+
+function renderChat() {
+  const box = $("chatMsgs");
+  box.innerHTML = chatLog.length
+    ? chatLog.map((m) => `<div class="chat-msg ${m.role === "user" ? "cm-user" : "cm-ai"}">${esc(m.text).replace(/\n/g, "<br>")}</div>`).join("")
+    : `<div class="muted center" style="padding:20px 10px">問我任何訓練或飲食問題，例如：<br>「器材被占用可以用什麼代替？」<br>「今天膝蓋有點緊要注意什麼？」</div>`;
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendChat(text) {
+  if (!text.trim()) return;
+  chatLog.push({ role: "user", text });
+  chatLog.push({ role: "model", text: "…思考中" });
+  renderChat();
+  try {
+    const contents = chatLog.slice(0, -1).map((m) => ({ role: m.role, parts: [{ text: m.text }] }));
+    const reply = await geminiCall(contents, { system: COACH_SYSTEM + "\n\n目前狀態：\n" + coachContext() });
+    chatLog[chatLog.length - 1] = { role: "model", text: reply || "（沒有回應，再問一次試試）" };
+  } catch (e) {
+    chatLog.pop();
+    toast("❌ " + e.message);
+  }
+  renderChat();
+}
+
+function aiReviewWorkout(w) {
+  $("shareOverlay").hidden = true;
+  openChat();
+  sendChat(`請複盤這次訓練，條列給我：1) 亮點 2) 要注意的點 3) 下次訓練的一個重點。\n\n${shareText(w)}`);
+}
+
+/* ---- 拍照記飲食 ---- */
+function fileToResizedBase64(file, maxDim = 768) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const sc = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * sc);
+      c.height = Math.round(img.height * sc);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(img.src);
+      resolve(c.toDataURL("image/jpeg", 0.8).split(",")[1]);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+async function analyzeMeal(file) {
+  const box = $("mealResult");
+  box.innerHTML = `<div class="muted center" style="padding:10px">🔍 AI 分析中…</div>`;
+  try {
+    const b64 = await fileToResizedBase64(file);
+    const prompt = "這是一餐台灣常見飲食的照片。請估算並只回傳 JSON：{\"name\":\"餐點名稱\",\"kcal\":整數估計熱量,\"protein_g\":整數蛋白質克數,\"advice\":\"一句30字內的減脂建議\"}。份量看不清楚時取中間值。";
+    const raw = await geminiCall(
+      [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "image/jpeg", data: b64 } }] }],
+      { json: true }
+    );
+    const meal = JSON.parse(raw);
+    if (!meal.name || meal.kcal == null) throw new Error("AI 回傳格式異常，再拍一次試試");
+    box.innerHTML = `<div class="meal-result">
+      <div class="meal-name">${esc(meal.name)}</div>
+      <div class="meal-nums">約 <b>${Number(meal.kcal)}</b> kcal・蛋白質 <b>${Number(meal.protein_g) || 0}</b> g</div>
+      <div class="muted">${esc(meal.advice || "")}</div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn btn-primary" id="btnMealSave" style="flex:1">記錄這餐</button>
+        <button class="btn btn-ghost" id="btnMealCancel">取消</button>
+      </div></div>`;
+    $("btnMealSave").addEventListener("click", () => {
+      const d = dietOf(todayStr());
+      if (!d.meals) d.meals = [];
+      const t = new Date();
+      d.meals.push({
+        time: `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`,
+        name: meal.name, kcal: Number(meal.kcal) || 0, protein: Number(meal.protein_g) || 0, advice: meal.advice || "",
+      });
+      save();
+      box.innerHTML = "";
+      renderDiet();
+      toast("🍱 已記錄這一餐");
+    });
+    $("btnMealCancel").addEventListener("click", () => (box.innerHTML = ""));
+  } catch (e) {
+    box.innerHTML = "";
+    toast("❌ " + e.message);
+  }
+}
+
+function renderMeals() {
+  const d = state.diet[todayStr()] || {};
+  const meals = d.meals || [];
+  const kcal = meals.reduce((a, m) => a + (m.kcal || 0), 0);
+  const prot = meals.reduce((a, m) => a + (m.protein || 0), 0);
+  $("mealSummary").innerHTML = meals.length
+    ? `今日約 <b class="${kcal > plan.kcalTarget ? "over" : ""}">${kcal.toLocaleString()}</b> / ${plan.kcalTarget.toLocaleString()} kcal・蛋白質 <b>${prot}</b> / ${plan.proteinTarget} g`
+    : `目標：${plan.kcalTarget.toLocaleString()} kcal 內・蛋白質 ${plan.proteinTarget} g（拍照就會自動累計）`;
+  $("mealList").innerHTML = meals.map((m, i) => `
+    <div class="w-item"><span class="muted">${esc(m.time)}　${esc(m.name)}</span>
+      <span><span class="w-kg">${m.kcal}</span><span class="muted"> kcal・${m.protein}g</span>
+      <button class="w-del" data-mi="${i}">✕</button></span></div>`).join("");
+  $("mealList").querySelectorAll(".w-del").forEach((b) =>
+    b.addEventListener("click", () => {
+      if (!confirm("刪除這筆餐點？")) return;
+      d.meals.splice(Number(b.dataset.mi), 1);
+      save();
+      renderDiet();
+    }));
+}
 
 /* ================= IG 分享卡 ================= */
 let currentShare = null;
@@ -1230,6 +1432,31 @@ $("btnShareCopy").addEventListener("click", async () => {
 });
 
 $("btnShareClose").addEventListener("click", () => ($("shareOverlay").hidden = true));
+$("btnShareAI").addEventListener("click", () => {
+  if (!geminiCfg()) { toast("先到設定頁啟用 Gemini AI"); return; }
+  if (currentShare) aiReviewWorkout(currentShare.w);
+});
+
+/* AI 聊天與拍照事件 */
+$("fabAI").addEventListener("click", openChat);
+$("btnChatClose").addEventListener("click", () => ($("chatOverlay").hidden = true));
+$("btnChatSend").addEventListener("click", () => {
+  const v = $("chatInput").value;
+  $("chatInput").value = "";
+  sendChat(v);
+});
+$("chatInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); $("btnChatSend").click(); }
+});
+$("btnMealPhoto").addEventListener("click", () => {
+  if (!geminiCfg()) { toast("先到設定頁啟用 Gemini AI"); showView("settings"); return; }
+  $("mealFile").click();
+});
+$("mealFile").addEventListener("change", (e) => {
+  const f = e.target.files[0];
+  if (f) analyzeMeal(f);
+  e.target.value = "";
+});
 
 /* ================= 啟動 ================= */
 $("topbarDate").textContent = (() => {
@@ -1244,3 +1471,4 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 
 showView("train");
 refreshPlan();
+updateFab();

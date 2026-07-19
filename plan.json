@@ -1,5 +1,5 @@
 {
-  "updated": "2026-07-19",
+  "updated": "2026-07-19.2",
   "startDate": "2026-07-14",
   "pattern": "alternate",
   "weeklyTarget": 3,
@@ -7,6 +7,8 @@
   "deloadEvery": 5,
   "cardioTargetMins": 30,
   "stepsTarget": 7000,
+  "kcalTarget": 1650,
+  "proteinTarget": 120,
   "phases": [
     { "from": "2026-07", "to": "2026-09", "name": "Phase 1・減脂適應期", "goal": "習慣建立＋動作學習，體重 75 → 71" },
     { "from": "2026-10", "to": "2026-12", "name": "Phase 2・減脂肌力期", "goal": "動作升級＋重量推進，體重 71 → 68（達成 M1）" },

@@ -117,6 +117,14 @@
       </button>
     </div>
     <div class="card">
+      <div class="card-title">📸 AI 飲食紀錄</div>
+      <div id="mealSummary" class="muted"></div>
+      <button class="btn btn-primary btn-block" id="btnMealPhoto" style="margin-top:10px">拍照分析這一餐</button>
+      <input type="file" id="mealFile" accept="image/*" capture="environment" hidden>
+      <div id="mealResult"></div>
+      <div id="mealList"></div>
+    </div>
+    <div class="card">
       <div class="card-title">今日步數（選填）</div>
       <div class="row">
         <input type="number" id="stepsInput" inputmode="numeric" placeholder="看 Pixel 計步填入">
@@ -157,6 +165,14 @@
       <label class="toggle-row"><span>結束時震動</span><input type="checkbox" id="optVibrate" checked></label>
     </div>
     <div class="card">
+      <div class="card-title">🤖 AI 教練（Gemini）</div>
+      <div class="row">
+        <input type="password" id="geminiKey" placeholder="貼上 Gemini API key" autocomplete="off">
+        <button class="btn btn-primary" id="btnSaveKey">啟用</button>
+      </div>
+      <div class="muted" id="geminiStatus"></div>
+    </div>
+    <div class="card">
       <div class="card-title">資料備份</div>
       <button class="btn btn-primary btn-block" id="btnExport">匯出 JSON 備份</button>
       <button class="btn btn-ghost btn-block" id="btnImport">匯入 JSON 備份</button>
@@ -166,7 +182,7 @@
     <div class="card">
       <button class="btn btn-danger btn-block" id="btnWipe">清除全部資料</button>
     </div>
-    <div class="muted center" id="versionLine">健身紀錄 v0.5.0 (私人教練)</div>
+    <div class="muted center" id="versionLine">健身紀錄 v0.6.0 (AI 助教)</div>
   </section>
 
 </main>
@@ -223,10 +239,25 @@
       <button class="btn btn-primary" id="btnShareNative">📤 分享</button>
       <button class="btn btn-ghost" id="btnShareDownload">下載</button>
       <button class="btn btn-ghost" id="btnShareCopy">複製文字</button>
+      <button class="btn btn-ghost" id="btnShareAI">🤖 複盤</button>
     </div>
     <button class="btn btn-ghost btn-block" id="btnShareClose">關閉</button>
   </div>
 </div>
+
+<!-- AI 教練聊天室 -->
+<div class="overlay" id="chatOverlay" hidden>
+  <div class="chat-box">
+    <div class="chat-head"><b>🤖 AI 教練</b><button id="btnChatClose">✕</button></div>
+    <div class="chat-msgs" id="chatMsgs"></div>
+    <div class="chat-input">
+      <input type="text" id="chatInput" placeholder="問 AI 教練…" autocomplete="off">
+      <button class="btn btn-primary" id="btnChatSend">送出</button>
+    </div>
+  </div>
+</div>
+
+<button id="fabAI" class="fab-ai" hidden>🤖</button>
 
 <div id="toast" class="toast" hidden></div>
 
