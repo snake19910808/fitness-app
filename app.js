@@ -985,13 +985,28 @@ function renderSettings() {
   $("optSound").checked = state.settings.sound;
   $("optVibrate").checked = state.settings.vibrate;
   const cfg = geminiCfg();
-  $("geminiStatus").innerHTML = cfg
-    ? `✅ 已啟用（${esc(cfg.model)}）<button class="link-btn" id="btnRemoveKey">移除 key</button>`
-    : "未設定。key 只會存在這支手機，不會進備份檔或雲端。";
-  if (cfg) $("btnRemoveKey").addEventListener("click", () => {
+  if (!cfg) {
+    $("geminiStatus").innerHTML = "未設定。key 只會存在這支手機，不會進備份檔或雲端。";
+    return;
+  }
+  const models = cfg.models && cfg.models.length ? cfg.models : [cfg.model];
+  $("geminiStatus").innerHTML = `✅ 已啟用<button class="link-btn" id="btnRemoveKey">移除 key</button>
+    <div class="row" style="margin-top:10px">
+      <label class="muted">模型</label>
+      <select id="geminiModelSelect">
+        ${models.map((m) => `<option value="${esc(m)}"${m === cfg.model ? " selected" : ""}>${esc(m)}${m === models[0] ? "（推薦）" : ""}</option>`).join("")}
+      </select>
+    </div>
+    <div class="muted" style="margin-top:4px">所選模型額滿或故障時，會自動改用清單中的其他模型並提示。</div>`;
+  $("btnRemoveKey").addEventListener("click", () => {
     if (!confirm("移除 Gemini key？AI 功能將停用。")) return;
     saveGeminiCfg(null);
     toast("已移除");
+  });
+  $("geminiModelSelect").addEventListener("change", (e) => {
+    cfg.model = e.target.value;
+    saveGeminiCfg(cfg);
+    toast(`已切換為 ${cfg.model}`);
   });
 }
 
@@ -1000,10 +1015,10 @@ $("btnSaveKey").addEventListener("click", async () => {
   if (!key) { toast("請先貼上 API key"); return; }
   $("geminiStatus").textContent = "驗證中…";
   try {
-    const model = await validateGeminiKey(key);
-    saveGeminiCfg({ key, model });
+    const models = await validateGeminiKey(key);
+    saveGeminiCfg({ key, model: models[0], models });
     $("geminiKey").value = "";
-    toast("✅ AI 教練已啟用");
+    toast(`✅ AI 教練已啟用，找到 ${models.length} 個可用模型`);
   } catch (e) {
     renderSettings();
     toast("❌ " + e.message);
@@ -1074,17 +1089,42 @@ function saveGeminiCfg(cfg) {
   renderSettings();
 }
 
+/** 列出此 key 可用的對話模型，依適合度排序（Flash 優先，排除影像/嵌入等特化模型） */
 async function validateGeminiKey(key) {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}&pageSize=100`);
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}&pageSize=200`);
   if (!res.ok) throw new Error(`key 無效或無權限（${res.status}）`);
   const data = await res.json();
-  const names = (data.models || []).map((m) => m.name.replace("models/", ""));
-  const model =
-    names.find((n) => n === "gemini-flash-latest") ||
-    names.find((n) => n.startsWith("gemini") && n.includes("flash") && !n.includes("lite") && !n.includes("image")) ||
-    names.find((n) => n.includes("flash"));
-  if (!model) throw new Error("此 key 沒有可用的 Flash 模型");
-  return model;
+  const score = (n) => {
+    if (n === "gemini-flash-latest") return 0;
+    if (n === "gemini-flash-lite-latest") return 2;
+    if (n.includes("flash") && !n.includes("lite")) return 1;
+    if (n.includes("flash-lite") || (n.includes("flash") && n.includes("lite"))) return 3;
+    if (n.includes("pro")) return 4;
+    return 5;
+  };
+  const models = (data.models || [])
+    .filter((m) => (m.supportedGenerationMethods || []).includes("generateContent"))
+    .map((m) => m.name.replace("models/", ""))
+    .filter((n) => n.startsWith("gemini") && !/image|embed|tts|live|audio|veo|imagen/.test(n))
+    .sort((a, b) => score(a) - score(b))
+    .slice(0, 10);
+  if (!models.length) throw new Error("此 key 沒有可用的對話模型");
+  return models;
+}
+
+/** 呼叫指定模型；429/403/404/503 標記為可退避，讓上層自動換模型 */
+async function geminiCallModel(model, key, body) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+  );
+  if (!res.ok) {
+    const err = new Error(res.status === 429 ? `${model} 額度已滿` : `AI 呼叫失敗（${res.status}）`);
+    err.retriable = [429, 403, 404, 503].includes(res.status);
+    throw err;
+  }
+  const data = await res.json();
+  return (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
 }
 
 async function geminiCall(contents, { json = false, system = "" } = {}) {
@@ -1093,13 +1133,20 @@ async function geminiCall(contents, { json = false, system = "" } = {}) {
   const body = { contents };
   if (system) body.systemInstruction = { parts: [{ text: system }] };
   if (json) body.generationConfig = { responseMimeType: "application/json" };
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model}:generateContent?key=${encodeURIComponent(cfg.key)}`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-  );
-  if (!res.ok) throw new Error(`AI 呼叫失敗（${res.status}）`);
-  const data = await res.json();
-  return (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+  // 首選使用者所選模型，額滿/故障自動退避到清單中的下一個
+  const chain = [cfg.model, ...(cfg.models || []).filter((m) => m !== cfg.model)].slice(0, 4);
+  let lastErr;
+  for (const model of chain) {
+    try {
+      const out = await geminiCallModel(model, cfg.key, body);
+      if (model !== cfg.model) toast(`⚠️ ${cfg.model} 不可用，本次改用 ${model}`);
+      return out;
+    } catch (e) {
+      lastErr = e;
+      if (!e.retriable) throw e;
+    }
+  }
+  throw lastErr;
 }
 
 const COACH_SYSTEM = "你是一位專業健身教練兼營養師，服務對象：35歲男性、163cm、減脂期健身初學者、目標55kg、只做機械式器材與居家徒手訓練。回答用繁體中文、精簡（150字內）、務實、先講結論。若使用者提到關節刺痛或明顯不適，一律建議停止該動作並就醫評估。";

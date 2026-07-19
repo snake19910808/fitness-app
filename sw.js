@@ -1,5 +1,5 @@
 /* 離線快取 Service Worker */
-const CACHE = "fitapp-v0.6.0";
+const CACHE = "fitapp-v0.6.1";
 const ASSETS = ["./", "./index.html", "./style.css", "./app.js", "./manifest.json", "./icon.svg", "./plan.json"];
 
 self.addEventListener("install", (e) => {
