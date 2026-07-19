@@ -1,0 +1,16 @@
+{
+  "updated": "2026-07-19",
+  "startDate": "2026-07-14",
+  "pattern": "alternate",
+  "weeklyTarget": 3,
+  "rotation": ["A", "B", "C"],
+  "deloadEvery": 5,
+  "cardioTargetMins": 30,
+  "stepsTarget": 7000,
+  "phases": [
+    { "from": "2026-07", "to": "2026-09", "name": "Phase 1・減脂適應期", "goal": "習慣建立＋動作學習，體重 75 → 71" },
+    { "from": "2026-10", "to": "2026-12", "name": "Phase 2・減脂肌力期", "goal": "動作升級＋重量推進，體重 71 → 68（達成 M1）" },
+    { "from": "2027-01", "to": "2027-06", "name": "Phase 3・持續減脂期", "goal": "課表改版＋防停滯，體重 68 → 62（達成 M2）" },
+    { "from": "2027-07", "to": "2027-12", "name": "Phase 4・最終衝刺期", "goal": "體重 62 → 55，依體脂與體態重新評估終點" }
+  ]
+}

@@ -1,6 +1,6 @@
 /* 離線快取 Service Worker */
-const CACHE = "fitapp-v0.4.0";
-const ASSETS = ["./", "./index.html", "./style.css", "./app.js", "./manifest.json", "./icon.svg"];
+const CACHE = "fitapp-v0.5.0";
+const ASSETS = ["./", "./index.html", "./style.css", "./app.js", "./manifest.json", "./icon.svg", "./plan.json"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)));

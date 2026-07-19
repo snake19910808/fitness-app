@@ -94,6 +94,143 @@ function fmtSet(exName, s) {
 
 let state = loadState();
 
+/* ================= 訓練計畫（plan.json，可線上更新） ================= */
+const DEFAULT_PLAN = {
+  updated: "builtin",
+  startDate: "2026-07-14",
+  pattern: "alternate",
+  weeklyTarget: 3,
+  rotation: ["A", "B", "C"],
+  deloadEvery: 5,
+  cardioTargetMins: 30,
+  stepsTarget: 7000,
+  phases: [],
+};
+
+let plan = loadCachedPlan();
+
+function loadCachedPlan() {
+  try {
+    const p = JSON.parse(localStorage.getItem("fitapp.plan"));
+    return Object.assign({}, DEFAULT_PLAN, p || {});
+  } catch { return { ...DEFAULT_PLAN }; }
+}
+
+async function refreshPlan() {
+  try {
+    const res = await fetch("plan.json", { cache: "no-cache" });
+    if (!res.ok) return;
+    const p = await res.json();
+    const changed = p.updated !== plan.updated;
+    localStorage.setItem("fitapp.plan", JSON.stringify(p));
+    plan = Object.assign({}, DEFAULT_PLAN, p);
+    if (changed && !state.active) renderTrain();
+  } catch { /* 離線時用快取版 */ }
+}
+
+/* ================= 排程引擎（練1休1） ================= */
+function daysBetween(a, b) { return Math.round((new Date(b) - new Date(a)) / 86400000); }
+function weekIndex(dateStr) { return Math.max(0, Math.floor(daysBetween(plan.startDate, dateStr) / 7)); }
+function isDeloadWeek(dateStr) { return plan.deloadEvery > 0 && (weekIndex(dateStr) + 1) % plan.deloadEvery === 0; }
+
+function nextCourseAfter(courseKey) {
+  const rot = plan.rotation;
+  const i = rot.indexOf(courseKey);
+  return rot[(i + 1) % rot.length] || rot[0];
+}
+
+/** 最近一次輪替課（A/B/C）；D 課與自由訓練不影響輪替 */
+function lastGymWorkout() {
+  for (let i = state.workouts.length - 1; i >= 0; i--)
+    if (plan.rotation.includes(state.workouts[i].course)) return state.workouts[i];
+  return null;
+}
+
+function todayPlanInfo() {
+  const today = todayStr();
+  const trainedToday = state.workouts.some((w) => w.date === today);
+  const lastGym = lastGymWorkout();
+  const nextCourse = lastGym ? nextCourseAfter(lastGym.course) : plan.rotation[0];
+  const now = new Date();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+  const weekCount = state.workouts.filter((w) => w.date >= todayStr(monday)).length;
+  let type;
+  if (trainedToday) type = "done";
+  else if (lastGym && daysBetween(lastGym.date, today) === 1) type = "rest";
+  else type = "train";
+  return { type, nextCourse, weekCount, deload: isDeloadWeek(today), dayN: state.workouts.length + 1 };
+}
+
+function currentPhase() {
+  const ym = todayStr().slice(0, 7);
+  return (plan.phases || []).find((p) => ym >= p.from && ym <= p.to) || null;
+}
+
+/* ================= 重量處方引擎（雙進度法） ================= */
+const INCREMENTS = { "腿推機": 5, "腿彎舉機": 5, "腿伸展機": 5, "髖外展機": 5, "站姿提踵": 5 };
+function repCeil(name) {
+  if (name === "捲腹") return 20;
+  if (name === "棒式(秒)") return 60;
+  return 15;
+}
+
+function lastRecordFull(exName) {
+  for (let i = state.workouts.length - 1; i >= 0; i--) {
+    const e = state.workouts[i].entries.find((x) => x.name === exName && x.sets.length);
+    if (e) return { sets: e.sets, date: state.workouts[i].date };
+  }
+  return null;
+}
+
+function prescribe(exName) {
+  const reduce = isDeloadWeek(todayStr()) ? "減量週" : (state.active?.low ? "低強度模式" : null);
+  const cfg = cardioConfig(exName);
+  const last = lastRecordFull(exName);
+
+  if (cfg) {
+    if (!last) return { reason: "照預設強度開始就好" };
+    const s = last.sets[last.sets.length - 1];
+    const f = { mins: s.mins != null ? s.mins : (s.reps || 30) };
+    if (s.incline != null) f.incline = s.incline;
+    if (s.speed != null) f.speed = s.speed;
+    if (s.resistance != null) f.resistance = s.resistance;
+    let reason = "維持上次強度";
+    const target = plan.cardioTargetMins || 30;
+    if (reduce) { f.mins = Math.max(15, Math.round(f.mins * 0.7 / 5) * 5); reason = `${reduce}：時間 -30%`; }
+    else if (f.mins < target) { f.mins = Math.min(target, f.mins + 5); reason = `先把時間拉到 ${target} 分`; }
+    else if (f.incline != null && f.incline < 12) { f.incline += 1; reason = "時間達標 → 坡度 +1%"; }
+    else if (f.resistance != null) { f.resistance += 1; reason = "時間達標 → 阻力 +1"; }
+    else if (f.speed != null) { f.speed = Math.round((f.speed + 0.3) * 10) / 10; reason = "坡度已頂 → 速度 +0.3"; }
+    return { cardio: f, reason };
+  }
+
+  if (!last) return { reason: "第一次做：選能標準完成 15 下的重量" };
+  const ceil = repCeil(exName);
+  const top = Math.max(...last.sets.map((s) => s.kg || 0));
+
+  if (top === 0) { // 徒手：次數進階
+    const maxReps = Math.max(...last.sets.map((s) => s.reps || 0));
+    if (maxReps >= ceil)
+      return { kg: 0, reps: ceil, reason: exName === "棒式(秒)" ? "已達 60 秒 → 試單腳棒式" : "已達上限 → 放慢速度更有感" };
+    return { kg: 0, reps: Math.min(ceil, maxReps + (exName === "棒式(秒)" ? 10 : 2)), reason: "徒手進階：加次數" };
+  }
+
+  const topSets = last.sets.filter((s) => (s.kg || 0) === top);
+  const inc = INCREMENTS[exName] != null ? INCREMENTS[exName] : 2.5;
+  let kg = top, reason;
+  if (topSets.length >= 2 && topSets.every((s) => (s.reps || 0) >= ceil)) {
+    kg = top + inc;
+    reason = `上次 ${top}kg 每組滿 ${ceil} 下 → 加重（就近選槽位）`;
+  } else if (topSets.some((s) => (s.reps || 0) < 12)) {
+    reason = `維持 ${top}kg，先把每組做回 12 下`;
+  } else {
+    reason = `維持 ${top}kg，目標每組多 1 下`;
+  }
+  if (reduce) { kg = Math.round(kg * 0.7 * 2) / 2; reason = `${reduce}：重量 -30%`; }
+  return { kg, reason };
+}
+
 function defaultState() {
   return {
     weights: [],            // {date:"YYYY-MM-DD", kg:75}
@@ -175,18 +312,103 @@ document.querySelectorAll(".tab").forEach((t) =>
 /* ================= 訓練 ================= */
 let elapsedTimer = null;
 
-function startWorkout(courseKey) {
+function startWorkout(courseKey, low) {
   const course = COURSES[courseKey];
   state.active = {
     id: Date.now().toString(36),
     date: todayStr(),
     course: courseKey,
     startTs: Date.now(),
+    low: !!low,
     entries: course.exercises.map((n) => ({ name: n, sets: [] })),
   };
   save();
   renderTrain();
   if (courseKey === "FREE") openPicker();
+}
+
+/* ================= 今天頁 ================= */
+function renderToday() {
+  const info = todayPlanInfo();
+  const phase = currentPhase();
+  const box = $("todayCard");
+  const wk = weekIndex(todayStr()) + 1;
+  const kicker = `${phase ? phase.name : "訓練計畫"}｜第 ${wk} 週${info.deload ? "・🔧 減量週" : ""}`;
+
+  if (info.type === "done") {
+    const w = state.workouts.filter((x) => x.date === todayStr()).pop();
+    const st = w ? workoutStats(w) : null;
+    box.innerHTML = `<div class="card today-card tc-done">
+      <div class="today-kicker">${esc(kicker)}</div>
+      <div class="today-main">✅ 今天已完成：${esc(COURSES[w.course]?.name || w.course)}</div>
+      <div class="today-sub">${st ? `${st.mins} 分鐘・${st.sets} 組・總量 ${st.vol.toLocaleString()} kg` : ""}</div>
+      <div class="today-sub">明天：休息日（步數＋打卡）・本週 ${info.weekCount}/${plan.weeklyTarget} 次 💪</div>
+    </div>`;
+    return;
+  }
+
+  if (info.type === "rest") {
+    const d = state.diet[todayStr()] || {};
+    const steps = d.steps || 0;
+    box.innerHTML = `<div class="card today-card tc-rest">
+      <div class="today-kicker">${esc(kicker)}</div>
+      <div class="today-main">😴 今天：休息日</div>
+      <div class="today-tasks">
+        <div class="t-task ${steps >= plan.stepsTarget ? "ok" : ""}">${steps >= plan.stepsTarget ? "✅" : "⬜"} 步數 ${steps.toLocaleString()} / ${plan.stepsTarget.toLocaleString()}</div>
+        <div class="t-task ${d.sugar ? "ok" : ""}">${d.sugar ? "✅" : "⬜"} 沒喝含糖飲料</div>
+        <div class="t-task ${d.late ? "ok" : ""}">${d.late ? "✅" : "⬜"} 睡前 3 小時不進食</div>
+      </div>
+      <div class="today-sub">明天：${esc(COURSES[info.nextCourse].name)}。恢復也是訓練的一部分。</div>
+      <button class="btn btn-ghost btn-block" id="btnGoDiet">去打卡 →</button>
+    </div>`;
+    $("btnGoDiet").addEventListener("click", () => showView("diet"));
+    return;
+  }
+
+  // 訓練日
+  const course = COURSES[info.nextCourse];
+  const rows = course.exercises.map((n) => {
+    const rx = prescribe(n);
+    let rxTxt;
+    if (rx.cardio) rxTxt = `${rx.cardio.mins} 分`;
+    else if (rx.kg == null) rxTxt = "自選";
+    else if (rx.kg === 0) rxTxt = `${rx.reps != null ? rx.reps : ""} ${n === "棒式(秒)" ? "秒" : "下"}`;
+    else rxTxt = `${rx.kg} kg`;
+    return `<div class="rx-row"><span>${esc(n)}</span><b>${esc(rxTxt)}</b></div>`;
+  }).join("");
+  const over = info.weekCount >= plan.weeklyTarget;
+  box.innerHTML = `<div class="card today-card tc-train">
+    <div class="today-kicker">${esc(kicker)}</div>
+    <div class="today-main">🏋️ 今天：${esc(course.name)}</div>
+    <div class="today-sub">本週第 ${info.weekCount + 1}/${plan.weeklyTarget} 次・Day ${info.dayN}${over ? "・本週已達標，今天是加分題" : ""}</div>
+    <div class="rx-list">${rows}</div>
+    <label class="low-row"><input type="checkbox" id="lowMode"> 今天狀態不好（重量 -30%）</label>
+    <button class="btn btn-primary btn-block btn-start-today" id="btnStartToday">開始今天的訓練 →</button>
+  </div>`;
+  $("btnStartToday").addEventListener("click", () => startWorkout(info.nextCourse, $("lowMode").checked));
+}
+
+function renderCalendar() {
+  const box = $("calendarStrip");
+  const info = todayPlanInfo();
+  let nextIsTrain = info.type === "train";
+  let course = info.nextCourse;
+  const wd = ["日", "一", "二", "三", "四", "五", "六"];
+  const cells = [];
+  for (let i = 0; i < 14; i++) {
+    const dt = new Date();
+    dt.setDate(dt.getDate() + i);
+    const ds = todayStr(dt);
+    let label, cls;
+    if (i === 0 && info.type === "done") { label = "✓完成"; cls = "cal-done"; nextIsTrain = false; }
+    else if (nextIsTrain) { label = course + " 課"; cls = "cal-" + course.toLowerCase(); course = nextCourseAfter(course); nextIsTrain = false; }
+    else { label = "休"; cls = "cal-rest"; nextIsTrain = true; }
+    cells.push(`<div class="cal-cell ${cls}${i === 0 ? " cal-today" : ""}${isDeloadWeek(ds) ? " cal-deload" : ""}">
+      <span class="cal-wd">${i === 0 ? "今天" : "週" + wd[dt.getDay()]}</span>
+      <span class="cal-date">${dt.getMonth() + 1}/${dt.getDate()}</span>
+      <span class="cal-tag">${label}</span></div>`);
+  }
+  box.innerHTML = cells.join("");
 }
 
 function finishWorkout() {
@@ -232,6 +454,8 @@ function renderTrain() {
   if (!state.active) {
     idle.hidden = false;
     active.hidden = true;
+    renderToday();
+    renderCalendar();
     // 上次訓練摘要
     const last = state.workouts[state.workouts.length - 1];
     const card = $("lastWorkoutCard");
@@ -268,6 +492,7 @@ function renderExercises() {
     const last = lastRecord(entry.name);
     const lastSetHere = entry.sets[entry.sets.length - 1];
     const cardio = cardioConfig(entry.name);
+    const rx = entry.sets.length ? null : prescribe(entry.name);
 
     const card = document.createElement("div");
     card.className = "exercise-card";
@@ -278,8 +503,9 @@ function renderExercises() {
         <button class="ex-del" title="移除動作">✕</button>
       </div>
       <div class="ex-last">${last ? `上次 (${fmtDateShort(last.date)})：${esc(last.text)}` : "第一次做這個動作"}</div>
+      ${rx && rx.reason ? `<div class="ex-rx">💡 ${esc(rx.reason)}</div>` : ""}
       <div class="set-chips">
-        ${entry.sets.map((s, i) => `<span class="set-chip">${cardio ? "" : `第${i + 1}組 `}<b>${esc(fmtSet(entry.name, s))}</b></span>`).join("")}
+        ${entry.sets.map((s, i) => `<button class="set-chip chip-log" data-si="${i}" title="點擊可刪除">${cardio ? "" : `第${i + 1}組 `}<b>${esc(fmtSet(entry.name, s))}</b></button>`).join("")}
       </div>`;
 
     if (cardio) {
@@ -287,7 +513,7 @@ function renderExercises() {
       card.innerHTML = `${headHtml}
         <div class="cardio-fields">
           ${cardio.map((f) => {
-            const def = lastSetHere?.[f.key] ?? last?.lastSet?.[f.key] ?? f.def;
+            const def = lastSetHere?.[f.key] ?? rx?.cardio?.[f.key] ?? last?.lastSet?.[f.key] ?? f.def;
             return `<label class="cardio-field"><input type="number" inputmode="decimal" step="${f.step}" data-key="${f.key}" value="${def}"><span>${f.label}</span></label>`;
           }).join("")}
         </div>
@@ -308,8 +534,8 @@ function renderExercises() {
         toast("🏃 有氧完成，辛苦了！");
       });
     } else {
-      const defKg = lastSetHere ? lastSetHere.kg : (last ? last.lastSet.kg : "");
-      const defReps = lastSetHere ? lastSetHere.reps : (last ? last.lastSet.reps : "");
+      const defKg = lastSetHere ? lastSetHere.kg : (rx && rx.kg != null ? rx.kg : (last ? last.lastSet.kg : ""));
+      const defReps = lastSetHere ? lastSetHere.reps : (rx && rx.reps != null ? rx.reps : (last ? last.lastSet.reps : ""));
       card.innerHTML = `${headHtml}
         <div class="set-input-row">
           <div class="num-group">
@@ -353,6 +579,17 @@ function renderExercises() {
         startRest(state.settings.restSec);
       });
     }
+
+    // 點組數晶片 → 刪除該組（誤按修正）
+    card.querySelectorAll(".chip-log").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const i = Number(chip.dataset.si);
+        if (!confirm(`刪除這筆：${fmtSet(entry.name, entry.sets[i])}？`)) return;
+        entry.sets.splice(i, 1);
+        save();
+        renderExercises();
+      });
+    });
 
     card.querySelector(".ex-del").addEventListener("click", () => {
       if (entry.sets.length && !confirm(`「${entry.name}」已記錄 ${entry.sets.length} 組，確定移除？`)) return;
@@ -702,9 +939,10 @@ function renderHistory() {
         <span class="h-meta">${sets} 組・${dur}</span>
       </button>
       <div class="h-detail" hidden>
-        ${w.entries.map((e) => `
+        <div class="muted" style="font-size:12px;margin-bottom:6px">點任一組可刪除（修正誤記）</div>
+        ${w.entries.map((e, ei) => `
           <div class="h-ex"><b>${esc(e.name)}</b>
-          ${e.sets.map((s) => esc(fmtSet(e.name, s))).join("、")}</div>`).join("")}
+          ${e.sets.map((s, si) => `<button class="h-set" data-ei="${ei}" data-si="${si}">${esc(fmtSet(e.name, s))}</button>`).join("")}</div>`).join("")}
         <div class="h-actions">
           <button class="btn btn-primary h-share">📤 IG 分享卡</button>
           <button class="h-del">刪除這筆紀錄</button>
@@ -715,6 +953,18 @@ function renderHistory() {
       d.hidden = !d.hidden;
     });
     item.querySelector(".h-share").addEventListener("click", () => shareWorkout(w));
+    item.querySelectorAll(".h-set").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const ei = Number(btn.dataset.ei), si = Number(btn.dataset.si);
+        const e = w.entries[ei];
+        if (!confirm(`刪除 ${e.name} 的這筆：${fmtSet(e.name, e.sets[si])}？`)) return;
+        e.sets.splice(si, 1);
+        if (!e.sets.length) w.entries.splice(ei, 1);
+        if (!w.entries.length) state.workouts = state.workouts.filter((x) => x.id !== w.id);
+        save();
+        renderHistory();
+      });
+    });
     item.querySelector(".h-del").addEventListener("click", () => {
       if (!confirm(`刪除 ${w.date} 的訓練紀錄？此動作無法復原。`)) return;
       state.workouts = state.workouts.filter((x) => x.id !== w.id);
@@ -993,3 +1243,4 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 }
 
 showView("train");
+refreshPlan();

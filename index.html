@@ -21,9 +21,13 @@
 
   <!-- ============ 訓練 ============ -->
   <section class="view" id="view-train">
-    <!-- 未開始訓練 -->
+    <!-- 未開始訓練：今天頁 -->
     <div id="trainIdle">
-      <div class="section-label">開始今天的訓練</div>
+      <div id="todayCard"></div>
+      <div class="section-label">未來 14 天</div>
+      <div id="calendarStrip" class="calendar-strip"></div>
+      <details class="all-courses">
+        <summary>所有課表（手動選課）</summary>
       <div class="course-btns">
         <button class="course-card cc-a" data-start="A">
           <span class="cc-icon">🔥</span>
@@ -51,6 +55,7 @@
           <span class="cc-arrow">›</span>
         </button>
       </div>
+      </details>
       <div class="card" id="lastWorkoutCard" hidden>
         <div class="card-title">上次訓練</div>
         <div id="lastWorkoutSummary" class="muted"></div>
@@ -161,14 +166,14 @@
     <div class="card">
       <button class="btn btn-danger btn-block" id="btnWipe">清除全部資料</button>
     </div>
-    <div class="muted center" id="versionLine">健身紀錄 v0.4.0 (IG 分享＋有氧細分)</div>
+    <div class="muted center" id="versionLine">健身紀錄 v0.5.0 (私人教練)</div>
   </section>
 
 </main>
 
 <!-- 底部分頁 -->
 <nav class="tabbar">
-  <button class="tab active" data-view="train"><span class="tab-icon">🏋️</span>訓練</button>
+  <button class="tab active" data-view="train"><span class="tab-icon">📋</span>今天</button>
   <button class="tab" data-view="weight"><span class="tab-icon">⚖️</span>體重</button>
   <button class="tab" data-view="diet"><span class="tab-icon">✅</span>打卡</button>
   <button class="tab" data-view="history"><span class="tab-icon">📅</span>歷史</button>
